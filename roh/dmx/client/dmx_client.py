@@ -53,12 +53,13 @@ class DmxClient:
         # reset input buffer, so we don't have to deal with historic buffer, which might be quite huge
         self.ser.reset_input_buffer()
         while True:
-            # continuously read 3 bytes from input buffer until sync is found
-            b: bytes = os.read(self.fd, 3)
-            if b == self.correct_break:
-                # notify callback of sync being found
-                self.callback.sync_found()
-                break
+            # continuously read up to 3 bytes from input buffer until sync is found
+            b: bytes = os.read(self.fd, 1)
+            if b == b'\xFF':
+                b = os.read(self.fd, 2)
+                if b == b'\x00\x00':
+                    self.callback.sync_found()
+                    break
 
     def run(self):
         while True:
@@ -86,5 +87,8 @@ class DmxClient:
 
 if __name__ == '__main__':
     # prototype watching only dmx address 1
-    c: DmxClient = DmxClient('/dev/ttyUSB0', [1], DummyDmxClientCallback())
-    c.run()
+    try:
+        c: DmxClient = DmxClient('/dev/ttyUSB0', [1], DummyDmxClientCallback())
+        c.run()
+    except KeyboardInterrupt:
+        print("interrupted by keyboard")

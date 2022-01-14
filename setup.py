@@ -17,7 +17,7 @@ setup(
     author="Marek Sebera",
     author_email="marek.sebera@gmail.com",
     license="Apache License, Version 2.0",
-    version="0.1",
+    version="0.2",
     packages=[
         "roh.dmx.client"
     ],
