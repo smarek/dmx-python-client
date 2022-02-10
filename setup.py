@@ -17,17 +17,13 @@ setup(
     author="Marek Sebera",
     author_email="marek.sebera@gmail.com",
     license="Apache License, Version 2.0",
-    version="0.2",
-    packages=[
-        "roh.dmx.client"
-    ],
+    version="0.3",
+    packages=["roh.dmx.client"],
     zip_safe=True,
     scripts=[],
     keywords="dmx dmx512",
     python_requires="~=3.7",
-    install_requires=[
-        "pyserial>=3.5"
-    ],
+    install_requires=["pyserial>=3.5"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "License :: OSI Approved :: Apache Software License",

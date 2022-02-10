@@ -5,6 +5,7 @@ class DmxClientCallback:
     """
     Callback class for roh.dmx.client.DmxClient
     """
+
     def sync_lost(self) -> None:
         """
         This callback is invoked every time sync is lost, can be used to monitor stability of connection
@@ -40,6 +41,7 @@ class DummyDmxClientCallback(DmxClientCallback):
     """
     Dummy (printing) implementation of DmxClientCallback
     """
+
     def sync_lost(self) -> None:
         print("SYNC LOST")
 
