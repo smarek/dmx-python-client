@@ -12,7 +12,8 @@ class DmxClient:
             self,
             serial_port: str,
             monitored_addresses: List[int],
-            callback: Optional[DmxClientCallback] = None
+            callback: Optional[DmxClientCallback] = None,
+            decimate_rate: int = 6,
     ):
         """
 
@@ -23,6 +24,7 @@ class DmxClient:
         self.correct_break = b'\xFF\x00\x00'
         self.has_sync = True
         self.has_istrip = False
+        self.decimate_rate = int(decimate_rate)
         self.callback: Optional[DmxClientCallback] = callback if callback else DummyDmxClientCallback()
         self.monitored_addresses: List[int] = monitored_addresses if isinstance(monitored_addresses, list) else []
 
@@ -102,7 +104,6 @@ class DmxClient:
         return frame, frame[-3:] == self.correct_break
 
     def run(self):
-        counter: int = 0
         while True:
             # dmx[0] + 512 + break sequence = 516 bytes
             frame, sync_correct = self.read_dmx_frame()
@@ -113,10 +114,11 @@ class DmxClient:
                 self.has_sync = self.obtain_sync()
                 continue
 
-            counter += 1
-            if (counter % 50) == 0:
-                self.ser.reset_input_buffer()
-                counter = 0
+            for i in range(self.decimate_rate):
+                _frame, _sync_correct = self.read_dmx_frame()
+                if _sync_correct:
+                    frame = _frame
+                continue
 
             self.callback.full_data_received(data=frame[1:513])
 
