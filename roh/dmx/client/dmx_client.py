@@ -4,6 +4,8 @@ from typing import List, Optional, Dict
 import serial
 from serial import PARITY_NONE, STOPBITS_TWO
 
+import time
+
 from roh.dmx.client.dmx_client_callback import DmxClientCallback, DummyDmxClientCallback
 
 
@@ -13,7 +15,6 @@ class DmxClient:
             serial_port: str,
             monitored_addresses: List[int],
             callback: Optional[DmxClientCallback] = None,
-            decimate_rate: int = 6,
     ):
         """
 
@@ -23,8 +24,8 @@ class DmxClient:
         """
         self.correct_break = b'\xFF\x00\x00'
         self.has_sync = True
+        self.has_lost_sync = False
         self.has_istrip = False
-        self.decimate_rate = int(decimate_rate)
         self.callback: Optional[DmxClientCallback] = callback if callback else DummyDmxClientCallback()
         self.monitored_addresses: List[int] = monitored_addresses if isinstance(monitored_addresses, list) else []
 
@@ -60,65 +61,61 @@ class DmxClient:
         # indicate
         self.has_istrip = istrip
 
+    def read_serial_data(self, length=516):
+        bdata: bytes = b''
+        odd: bytes = b''
+        # read data up until break
+        while (len(odd) + len(bdata)) < (length - 3):
+            bdata += (odd + self.ser.read(length - len(bdata) - len(odd) - 3)).replace(b'\xFF\xFF', b'\xFF')
+            if len(bdata) % 2:
+                bdata, odd = bdata[:-1], bdata[-1:]
+            else:
+                odd = b''
+        # read break sequence
+        bdata += (odd + self.ser.read(3)).replace(b'\xFF\xFF', b'\xFF')
+        bdata += self.ser.read(length - len(bdata))
+        #if self.has_lost_sync:
+        #    print("no sync data", len(bdata), bdata.hex())
+        assert len(bdata) == length, f"mismatch expected {length} retrieved {len(bdata)} odd {odd.hex()} bdata {bdata.hex()}"
+        return bdata, bdata[-3:] == b'\xFF\x00\x00'
+
     def obtain_sync(self) -> bool:
         # remove ISTRIP to distinguish from FFOOOO sequences in data from BREAK sequence
         self.set_iflag(istrip=True)
         # reset buffers
         self.ser.reset_input_buffer()
-        self.ser.reset_output_buffer()
-        # initial data
-        data: bytes = b'\x00\x00\x00'
-        # correct sync candidates
-        candidate_positions = {}
+        # buffer
+        bdata = b''
+        parts = []
         while True:
-            newbyte: bytes = self.ser.read(1)
-            if data[-1] == 0xFF and newbyte == b'\xFF':
-                # 2 times 0xFF is single 0xFF
-                continue
-            # append
-            data += newbyte
-            for candidate in candidate_positions.keys():
-                cut: int = 516
-                cfrm: bytes = data[candidate:candidate + cut]
-                if len(cfrm) == cut:
-                    if cfrm[-3:] == b'\xFF\x00\x00':
-                        self.has_sync = True
-                        self.set_iflag(istrip=False)
-                        return True
-            if data[-3:] == b'\xFF\x00\x00':
-                # we got break candidate
-                candidate_positions[len(data)] = True
-        # fallback
-        return False
-
-    def read_dmx_frame(self) -> (bytes, bool):
-        frame: bytes = b''
-        skipbyte: bool = False
-        while len(frame) < 516:
-            frame += self.ser.read(1)
-            if not skipbyte and not self.has_istrip and frame[-2:] == b'\xFF\xFF':
-                frame = frame[:-1]
-                skipbyte = True
-                continue
-            skipbyte = False
-        return frame, frame[-3:] == self.correct_break
+            bdata, is_correct_dmx_frame = self.read_serial_data(516)
+            parts = bdata.split(b'\xFF')
+            if len(parts) == 2:
+                break
+        assert len(parts) == 2, f"in 516 bytes there should not be more than 2 parts, got {len(parts)} in {bdata.hex()} got {bdata.split(bytes.fromhex('FF'))}"
+        # balance out buffer/position difference
+        bdata, is_correct_dmx_frame = self.read_serial_data(518 - len(parts[1]))
+        bdata, is_correct_dmx_frame = self.read_serial_data()
+        self.set_iflag(istrip=False)
+        return True
 
     def run(self):
+        counter: int = 0
         while True:
             # dmx[0] + 512 + break sequence = 516 bytes
-            frame, sync_correct = self.read_dmx_frame()
+            frame, sync_correct = self.read_serial_data()
             if not sync_correct:
                 # notify callback
-                self.callback.sync_lost()
+                self.has_lost_sync = True
+                if self.has_sync:
+                    self.callback.sync_lost()
                 # obtain sync
                 self.has_sync = self.obtain_sync()
                 continue
 
-            for i in range(self.decimate_rate):
-                _frame, _sync_correct = self.read_dmx_frame()
-                if _sync_correct:
-                    frame = _frame
-                continue
+            if self.has_lost_sync:
+                self.callback.sync_found()
+                self.has_lost_sync = False
 
             self.callback.full_data_received(data=frame[1:513])
 
